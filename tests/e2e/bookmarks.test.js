@@ -1351,4 +1351,53 @@ describe('Bookmarks and Pinned Tabs', () => {
       }
     });
   });
+
+  describe('Folder Context Menu', () => {
+    test('Move Down swaps a folder with its next sibling in Chrome bookmarks and the sidebar', async () => {
+      try {
+        const { first, second } = await sidebarPage.evaluate(async () => {
+          const spaceId = document.querySelector('.space.active').dataset.spaceId;
+          const { spaces } = await chrome.runtime.sendMessage({ type: 'spaceStore', action: 'get' });
+          const parentId = spaces.find(space => String(space.id) === spaceId).bookmarkFolderId;
+          const first = await chrome.bookmarks.create({ parentId, title: 'Move fixture A' });
+          const second = await chrome.bookmarks.create({ parentId, title: 'Move fixture B' });
+          return { first: first.id, second: second.id };
+        });
+        const folder = id => `.space.active .folder[data-bookmark-id="${id}"]`;
+        await sidebarPage.waitForSelector(folder(first));
+        await sidebarPage.waitForSelector(folder(second));
+
+        // Display order depends on the invert setting, so act on whichever folder is shown on top.
+        const order = () => sidebarPage.evaluate(async ids => {
+          const indexes = await Promise.all(ids.map(async id => (await chrome.bookmarks.get(id))[0].index));
+          const rows = ids.map(id => document.querySelector(`.space.active .folder[data-bookmark-id="${id}"]`));
+          const shown = rows.every(Boolean)
+            ? [...ids].sort((a, b) => (rows[ids.indexOf(a)].compareDocumentPosition(rows[ids.indexOf(b)]) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1)
+            : null;
+          return { indexes, shown };
+        }, [first, second]);
+        const before = await order();
+        expect(Math.abs(before.indexes[0] - before.indexes[1])).toBe(1);
+        const [top, bottom] = before.shown;
+
+        await sidebarPage.$eval(`${folder(top)} > .folder-header`, el =>
+          el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+        await sidebarPage.waitForSelector('.context-menu-item');
+        await sidebarPage.evaluate(() => {
+          const item = [...document.querySelectorAll('.context-menu-item')].find(el => el.textContent === 'Move Down');
+          if (!item) throw new Error('Move Down missing');
+          item.click();
+        });
+
+        await waitForCondition(async () => {
+          const after = await order();
+          return after.indexes[0] === before.indexes[1] && after.indexes[1] === before.indexes[0]
+            && after.shown?.[0] === bottom && after.shown?.[1] === top;
+        }, 10000, 'Move Down did not swap the folders');
+      } catch (error) {
+        await takeScreenshotOnFailure(sidebarPage, 'folder-move-down-failure');
+        throw error;
+      }
+    });
+  });
 });

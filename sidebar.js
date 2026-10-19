@@ -3615,6 +3615,28 @@ function setupFolderContextMenu(folderElement, space, item = null) {
             contextMenu.appendChild(newFolderOption);
         }
 
+        const parentId = String(folderElement.parentElement.closest('.folder')?.dataset.bookmarkId || spaceFolder.id);
+        const siblings = await chrome.bookmarks.getChildren(parentId);
+        const folderIndex = siblings.findIndex(sibling => String(sibling.id) === String(folderId));
+        const invertTabOrder = await Utils.getInvertTabOrder();
+        for (const [label, offset] of [['Move Up', invertTabOrder ? 1 : -1], ['Move Down', invertTabOrder ? -1 : 1]]) {
+            const targetIndex = folderIndex + offset;
+            if (folderIndex === -1 || targetIndex < 0 || targetIndex >= siblings.length) continue;
+
+            const moveOption = document.createElement('div');
+            moveOption.classList.add('context-menu-item');
+            moveOption.textContent = label;
+            moveOption.addEventListener('click', async () => {
+                contextMenu.remove();
+                try {
+                    await chrome.bookmarks.move(folderId, { parentId, index: targetIndex });
+                } catch (error) {
+                    Logger.error('Error moving folder:', error);
+                }
+            });
+            contextMenu.appendChild(moveOption);
+        }
+
         const deleteOption = document.createElement('div');
         deleteOption.classList.add('context-menu-item');
         deleteOption.textContent = 'Delete Folder';
