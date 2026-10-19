@@ -131,10 +131,11 @@ export const BookmarkUtils = {
      * @param {string} bookmarkData.url - Bookmark URL
      * @param {string} bookmarkData.title - Bookmark title
      * @param {string} bookmarkData.spaceName - Space name the bookmark belongs to
+     * @param {Object} [bookmarkData.adoptTab] - Open tab to adopt instead of creating one (see findAdoptableTab)
      * @param {string} targetSpaceId - Space ID to open the tab in
      * @param {HTMLElement} replaceElement - DOM element to replace with active tab element (optional)
      * @param {Object} context - Context object with required functions and data
-     * @returns {Object} The created Chrome tab object
+     * @returns {Object} The adopted or created Chrome tab object
      */
     async openBookmarkAsTab(bookmarkData, targetSpaceId, replaceElement = null, context, isPinned) {
         const {
