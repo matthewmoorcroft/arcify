@@ -811,6 +811,40 @@ describe('Space Management', () => {
         throw error;
       }
     }, 120000);
+
+    test('should not pull a space folder moved out of Arcify back in when its chip is dragged', async () => {
+      try {
+        await sidebarPage.close();
+        sidebarPage = await createSpace(browser, extensionId, 'Relocated');
+        const folderId = await sidebarPage.evaluate(async () => {
+          const [folder] = (await chrome.bookmarks.search({ title: 'Relocated' })).filter(node => !node.url);
+          await chrome.bookmarks.move(folder.id, { parentId: '1' });
+          return folder.id;
+        });
+        await sidebarPage.close();
+        sidebarPage = await openSidebar(browser, extensionId);
+        await sidebarPage.waitForFunction(() =>
+          [...document.querySelectorAll('.space-switcher button')].at(-1)?.textContent.trim() === 'Relocated',
+          { polling: 100, timeout: 5000 });
+        const before = await folderOrder(sidebarPage);
+
+        logTestStep('Dragging the relocated space chip to the front...');
+        await dragChip(sidebarPage, -1, 0, 'left');
+        await delay(1000);
+        const [folder] = await sidebarPage.evaluate(id => chrome.bookmarks.get(id), folderId);
+        expect(folder.parentId).toBe('1');
+        expect(await folderOrder(sidebarPage)).toEqual(before);
+        logTestStep('✓ Chip drag left the relocated folder where the user put it');
+
+        await sidebarPage.evaluate(async id => {
+          const [root] = (await chrome.bookmarks.search({ title: 'Arcify' })).filter(node => !node.url);
+          await chrome.bookmarks.move(id, { parentId: root.id });
+        }, folderId);
+      } catch (error) {
+        await takeScreenshotOnFailure(sidebarPage, 'space-order-relocated-failure');
+        throw error;
+      }
+    }, 60000);
   });
 
   describe('Space Persistence', () => {
