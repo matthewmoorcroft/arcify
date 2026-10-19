@@ -3616,12 +3616,16 @@ function setupFolderContextMenu(folderElement, space, item = null) {
         }
 
         const parentId = String(folderElement.parentElement.closest('.folder')?.dataset.bookmarkId || spaceFolder.id);
+        const findSwap = (siblings, offset) => {
+            const folderIndex = siblings.findIndex(sibling => String(sibling.id) === String(folderId));
+            const neighborIndex = folderIndex + offset;
+            if (folderIndex === -1 || neighborIndex < 0 || neighborIndex >= siblings.length) return null;
+            return { id: siblings[Math.max(folderIndex, neighborIndex)].id, index: Math.min(folderIndex, neighborIndex) };
+        };
         const siblings = await chrome.bookmarks.getChildren(parentId);
-        const folderIndex = siblings.findIndex(sibling => String(sibling.id) === String(folderId));
         const invertTabOrder = await Utils.getInvertTabOrder();
         for (const [label, offset] of [['Move Up', invertTabOrder ? 1 : -1], ['Move Down', invertTabOrder ? -1 : 1]]) {
-            const targetIndex = folderIndex + offset;
-            if (folderIndex === -1 || targetIndex < 0 || targetIndex >= siblings.length) continue;
+            if (!findSwap(siblings, offset)) continue;
 
             const moveOption = document.createElement('div');
             moveOption.classList.add('context-menu-item');
@@ -3629,7 +3633,8 @@ function setupFolderContextMenu(folderElement, space, item = null) {
             moveOption.addEventListener('click', async () => {
                 contextMenu.remove();
                 try {
-                    await chrome.bookmarks.move(folderId, { parentId, index: targetIndex });
+                    const swap = findSwap(await chrome.bookmarks.getChildren(parentId), offset);
+                    if (swap) await chrome.bookmarks.move(swap.id, { parentId, index: swap.index });
                 } catch (error) {
                     Logger.error('Error moving folder:', error);
                 }
