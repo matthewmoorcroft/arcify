@@ -9,14 +9,16 @@ beforeEach(() => {
     const nodes = {
         parent: { id: 'parent', parentId: 'space' },
         child: { id: 'child', parentId: 'parent' },
+        deep: { id: 'deep', parentId: 'child' },
         foreign: { id: 'foreign', parentId: 'other-space' },
         bookmark: { id: 'bookmark', parentId: 'space', url: 'https://example.com' },
         sibling: { id: 'sibling', parentId: 'space' }
     };
     const trees = {
-        parent: { id: 'parent', children: [{ id: 'child', children: [{ id: 'leaf', url: 'https://leaf.test/' }] }] },
-        child: { id: 'child', children: [{ id: 'leaf', url: 'https://leaf.test/' }] },
-        sibling: { id: 'sibling', children: [{ id: 'tab', url: 'https://tab.test/' }] },
+        parent: { id: 'parent', parentId: 'space', children: [{ id: 'child', parentId: 'parent', children: [{ id: 'leaf', url: 'https://leaf.test/' }] }] },
+        child: { id: 'child', parentId: 'parent', children: [{ id: 'leaf', url: 'https://leaf.test/' }] },
+        deep: { id: 'deep', parentId: 'child', children: [] },
+        sibling: { id: 'sibling', parentId: 'space', children: [{ id: 'tab', url: 'https://tab.test/' }] },
         bookmark: nodes.bookmark
     };
     globalThis.chrome = {
@@ -70,4 +72,12 @@ test('folders move to the space root or into a top-level folder within two level
     syncTabGroups = true;
     assert.equal(await canMoveFolder('space', 'sibling', 'space'), true);
     assert.equal(await canMoveFolder('space', 'sibling', 'parent'), false);
+});
+test('nested folders reorder within their current parent whatever the sync setting or depth', async () => {
+    syncTabGroups = true;
+    assert.equal(await canMoveFolder('space', 'child', 'parent'), true);
+    assert.equal(await canMoveFolder('space', 'sibling', 'parent'), false);
+    syncTabGroups = false;
+    assert.equal(await canMoveFolder('space', 'deep', 'child'), true);
+    assert.equal(await canMoveFolder('space', 'sibling', 'child'), false);
 });

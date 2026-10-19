@@ -20,11 +20,12 @@ export function isDescendant(folderNode, targetId) {
         || (folderNode.children || []).some(child => isDescendant(child, targetId));
 }
 
-// Moving a folder must keep it out of its own subtree and within the two folder levels.
+// Moving a folder must keep it out of its own subtree, and moving it into a new parent
+// must stay within the two folder levels.
 export async function canMoveFolder(spaceFolderId, folderId, parentId) {
     const [folder] = await chrome.bookmarks.getSubTree(folderId);
     if (!folder || folder.url || isDescendant(folder, parentId)) return false;
-    if (parentId === spaceFolderId) return true;
+    if (folder.parentId === parentId || parentId === spaceFolderId) return true;
     if ((folder.children || []).some(child => !child.url)) return false;
     return canCreateFolder(spaceFolderId, parentId);
 }
