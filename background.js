@@ -132,6 +132,7 @@ chrome.commands.onCommand.addListener(async function (command) {
 async function updateTabLastActivity(tabId) {
     if (!tabId) return;
     try {
+        await spaceStore.run(() => {});
         const result = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
         const activityData = result[TAB_ACTIVITY_STORAGE_KEY] || {};
         activityData[tabId] = Date.now();
@@ -146,6 +147,7 @@ async function updateTabLastActivity(tabId) {
 async function removeTabLastActivity(tabId) {
     if (!tabId) return;
     try {
+        await spaceStore.run(() => {});
         const result = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
         const activityData = result[TAB_ACTIVITY_STORAGE_KEY] || {};
         delete activityData[tabId];

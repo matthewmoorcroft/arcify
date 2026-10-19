@@ -71,3 +71,25 @@ test('a previous-session record for a reused tab id does not archive it at the f
     assert.deepEqual(local.spaces[0].temporaryTabs, [42]);
     assert.ok(Date.now() - local.tabLastActivity[42] < threshold);
 });
+test('an activation write in flight during the new-session clear does not restore previous-session records', async () => {
+    session.spaceSession = false;
+    local.spaceTabSnapshot = [{ spaceId: 'a', section: 'temporaryTabs', order: 1, url: 'https://restored.test/' }];
+    local.tabLastActivity = { 42: Date.now() - threshold - 1000 };
+    tabs = [{ id: 7, windowId: 1, url: 'https://active.test/', groupId: -1, active: true },
+        { id: 42, windowId: 1, url: 'https://restored.test/', groupId: -1, active: false }];
+    const fireAlarm = startBackground();
+    const storage = chrome.storage.local, get = storage.get, set = storage.set;
+    let markCleared;
+    const cleared = new Promise(resolve => { markCleared = resolve; });
+    storage.set = async values => { await set(values); if ('tabLastActivity' in values) markCleared(); };
+    storage.get = async keys => {
+        if (keys !== 'tabLastActivity') return get(keys);
+        const snapshot = await get(keys);
+        await cleared;
+        return snapshot;
+    };
+    await Promise.all(chrome.tabs.onActivated.listeners.map(fn => fn({ tabId: 7, windowId: 1 })));
+    await fireAlarm();
+    assert.deepEqual(removed, []);
+    assert.ok(Date.now() - local.tabLastActivity[42] < threshold);
+});
