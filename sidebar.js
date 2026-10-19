@@ -1020,11 +1020,8 @@ async function moveSpaceFolderBefore(space, nextSpace) {
     try {
         const arcifyFolder = await LocalStorage.getOrCreateArcifyFolder();
         const children = await chrome.bookmarks.getChildren(arcifyFolder.id);
-        const currentIndex = children.findIndex(node => node.id === space.bookmarkFolderId);
         const nextIndex = children.findIndex(node => node.id === nextSpace?.bookmarkFolderId);
-        // Removing a folder shifts later siblings left, so a forward move must target one index earlier.
-        const movingForward = currentIndex < nextIndex;
-        const index = nextIndex < 0 ? children.length - 1 : nextIndex - Number(movingForward);
+        const index = nextIndex < 0 ? children.length : nextIndex;
         await chrome.bookmarks.move(space.bookmarkFolderId, { parentId: arcifyFolder.id, index });
     } catch (error) {
         Logger.warn('Could not reorder space folder:', error);
@@ -1103,6 +1100,7 @@ async function updateSpaceSwitcher() {
             const targetElement = e.target.closest('button'); // Find the button dropped onto or near
             const draggedSpaceId = draggedButton.dataset.spaceId;
             let targetSpaceId = targetElement ? targetElement.dataset.spaceId : null;
+            if (targetSpaceId === draggedSpaceId) return;
 
             // Find original index
             const originalIndex = spaces.findIndex(s => s.id === draggedSpaceId);
