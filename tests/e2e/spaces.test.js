@@ -919,8 +919,8 @@ describe('Space Management', () => {
         while (!(item = [...document.querySelectorAll('#tab-context-menu .submenu .context-menu-item')].find(el => el.textContent === name))) {
           await new Promise(resolve => setTimeout(resolve, 5));
         }
-        const entries = [...item.parentElement.children];
-        const inactive = entries.findIndex(el => el.classList.contains('context-menu-separator')) < entries.indexOf(item);
+        const separator = item.parentElement.querySelector('.context-menu-separator');
+        const inactive = Boolean(separator && separator.compareDocumentPosition(item) & Node.DOCUMENT_POSITION_FOLLOWING);
         item.click();
         return { folderId: folder.id, inactive };
       }, { name: inactiveName, selector: pinnedRow });
@@ -992,6 +992,35 @@ describe('Space Management', () => {
       expect(after.parentId).toBe(target.bookmarkFolderId);
       expect(after.binding).toBe(bookmarkId);
       expect(after.sourceOwns).toBe(false);
+    }, 60000);
+
+    test('should move the clicked favorite when another bound tab has already closed', async () => {
+      const { source, target } = await getFixtureSpaces();
+      const { tabId, pinnedRow, bookmarkId } = await pinOpenTab(source, 'stale');
+      const closedTabId = await openBoundTabInOtherWindow(source, bookmarkId, 'stale');
+      await sidebarPage.reload();
+      await sidebarPage.waitForSelector(pinnedRow);
+
+      // Close the other tab and move before the sidebar refreshes its space ownership.
+      await sidebarPage.evaluate(async ({ closedTabId, bookmarkId, selector, name }) => {
+        await chrome.tabs.remove(closedTabId);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        const { pinnedTabStatesById = {} } = await chrome.storage.local.get('pinnedTabStatesById');
+        pinnedTabStatesById[closedTabId] = { bookmarkId, pinnedUrl: null };
+        await chrome.storage.local.set({ pinnedTabStatesById });
+        document.querySelector(selector).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+        let item;
+        while (!(item = [...document.querySelectorAll('#tab-context-menu .submenu .context-menu-item')].find(el => el.textContent === name))) {
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+        item.click();
+      }, { closedTabId, bookmarkId, selector: pinnedRow, name: targetName });
+      await sidebarPage.waitForFunction(async ({ tabId, targetId }) => {
+        const { spaces } = await chrome.storage.local.get('spaces');
+        return spaces.find(s => s.id === targetId).spaceBookmarks.includes(tabId);
+      }, { polling: 100 }, { tabId, targetId: target.id });
+      const parentId = await sidebarPage.evaluate(async id => (await chrome.bookmarks.get(id))[0].parentId, bookmarkId);
+      expect(parentId).toBe(target.bookmarkFolderId);
     }, 60000);
   });
 });
