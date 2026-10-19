@@ -254,6 +254,7 @@ tab-group sync setting. Startup and opening the sidebar discover existing space
 folders, including folders synced by Chrome, and display their bookmarks as saved
 pins. Pinning adds a bookmark; unpinning removes its saved bookmark even if the tab
 has navigated to another URL. Nested bookmark folders remain nested in the space.
+Deleting a space also deletes its bookmark folder and all bookmarks inside it.
 
 Run `npm run test:unit` for storage, migration, and sync regression tests. Browser
 coverage lives in `tests/e2e/independent-spaces.test.js` alongside the space, tab,

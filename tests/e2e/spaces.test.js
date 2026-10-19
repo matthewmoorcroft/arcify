@@ -174,11 +174,33 @@ describe('Space Management', () => {
         });
         await delay(1000);
 
+        // Add known bookmark contents so the warning proves the full folder tree is counted.
+        await sidebarPage.evaluate(async () => {
+          const { spaces = [] } = await chrome.storage.local.get('spaces');
+          const space = spaces.find(item => item.name === 'Space to Delete');
+          const nestedFolder = await chrome.bookmarks.create({
+            parentId: space.bookmarkFolderId,
+            title: 'Nested folder',
+          });
+          await chrome.bookmarks.create({
+            parentId: space.bookmarkFolderId,
+            title: 'Direct bookmark',
+            url: 'https://example.com/direct',
+          });
+          await chrome.bookmarks.create({
+            parentId: nestedFolder.id,
+            title: 'Nested bookmark',
+            url: 'https://example.com/nested',
+          });
+        });
+
         // Force-show the dropdown and click delete
         await showSpaceOptionsDropdown(sidebarPage);
 
         // Register dialog handler to accept the confirm('Delete this space...')
+        let dialogMessage = '';
         sidebarPage.on('dialog', async dialog => {
+          dialogMessage = dialog.message();
           await dialog.accept();
         });
 
@@ -208,6 +230,7 @@ describe('Space Management', () => {
         const finalSpaces = await getSidebarSpaces(sidebarPage);
         logTestStep(`Spaces after delete: ${finalSpaces.map(s => s.name).join(', ')}`);
 
+        expect(dialogMessage).toBe('Delete "Space to Delete"? This deletes its bookmark folder (2 bookmarks) and closes its tabs.');
         expect(finalSpaces.length).toBe(initialCount - 1);
         expect(finalSpaces.find(s => s.name === 'Space to Delete')).toBeUndefined();
 
