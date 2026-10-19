@@ -529,6 +529,7 @@ export function showUndoToast(message, onUndo, duration = 5000) {
             await onUndo();
         } catch (error) {
             Logger.error('Undo failed:', error);
+            alert(error.message);
         }
     });
     toast.append(text, undoButton);

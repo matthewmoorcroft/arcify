@@ -1437,7 +1437,8 @@ function offerFavoriteUndo(removed, restoreTab = null) {
     if (!removed) return;
     // A bookmark is the favorite's durable record, so give intentional removal a recovery window.
     showUndoToast('Favorite removed.', async () => {
-        const bookmark = await chrome.bookmarks.create(removed);
+        const siblings = await chrome.bookmarks.getChildren(removed.parentId);
+        const bookmark = await chrome.bookmarks.create({ ...removed, index: Math.min(removed.index, siblings.length) });
         if (restoreTab) await restoreTab(bookmark);
         scheduleBookmarkRefresh();
     });
