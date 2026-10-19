@@ -862,6 +862,18 @@ describe('Space Management', () => {
       return { tabId, pinnedRow, bookmarkId: await sidebarPage.$eval(pinnedRow, el => el.dataset.bookmarkId) };
     }
 
+    // Favorites are space-wide, so another window can hold a second tab bound to the same bookmark.
+    async function openBoundTabInOtherWindow(source, bookmarkId, path) {
+      return sidebarPage.evaluate(async ({ url, spaceId, bookmarkId }) => {
+        const { tabs: [tab] } = await chrome.windows.create({ url, focused: false });
+        await chrome.runtime.sendMessage({ type: 'spaceStore', action: 'assign', tabId: tab.id, spaceId, pinned: true });
+        const { pinnedTabStatesById = {} } = await chrome.storage.local.get('pinnedTabStatesById');
+        pinnedTabStatesById[tab.id] = { bookmarkId, pinnedUrl: url };
+        await chrome.storage.local.set({ pinnedTabStatesById });
+        return tab.id;
+      }, { url: `${url}${path}`, spaceId: source.id, bookmarkId });
+    }
+
     test('should move an open favorite with its bookmark and keep it bound', async () => {
       const { source, target } = await getFixtureSpaces();
       const { tabId, pinnedRow, bookmarkId } = await pinOpenTab(source, 'open');
@@ -894,9 +906,12 @@ describe('Space Management', () => {
       const inactiveName = 'Inactive Favorite Target';
       const { source } = await getFixtureSpaces();
       const { tabId, pinnedRow, bookmarkId } = await pinOpenTab(source, 'inactive');
+      const otherTabId = await openBoundTabInOtherWindow(source, bookmarkId, 'inactive');
+      await sidebarPage.reload();
+      await sidebarPage.waitForSelector(pinnedRow);
 
       // The sidebar adopts new root folders on its next refresh, so pick the folder before that runs.
-      const folderId = await sidebarPage.evaluate(async ({ name, selector }) => {
+      const { folderId, inactive } = await sidebarPage.evaluate(async ({ name, selector }) => {
         const root = (await chrome.bookmarks.search({ title: 'Arcify' })).find(node => !node.url);
         const folder = await chrome.bookmarks.create({ parentId: root.id, title: name });
         document.querySelector(selector).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
@@ -904,29 +919,32 @@ describe('Space Management', () => {
         while (!(item = [...document.querySelectorAll('#tab-context-menu .submenu .context-menu-item')].find(el => el.textContent === name))) {
           await new Promise(resolve => setTimeout(resolve, 5));
         }
+        const entries = [...item.parentElement.children];
+        const inactive = entries.findIndex(el => el.classList.contains('context-menu-separator')) < entries.indexOf(item);
         item.click();
-        return folder.id;
+        return { folderId: folder.id, inactive };
       }, { name: inactiveName, selector: pinnedRow });
+      expect(inactive).toBe(true);
       await sidebarPage.waitForFunction(async ({ tabId, name }) => {
         const { spaces } = await chrome.storage.local.get('spaces');
         return spaces.find(s => s.name === name)?.spaceBookmarks.includes(tabId);
       }, { polling: 100 }, { tabId, name: inactiveName });
 
-      const after = await sidebarPage.evaluate(async ({ tabId, sourceId, bookmarkId, name }) => {
+      const after = await sidebarPage.evaluate(async ({ tabIds, sourceId, bookmarkId, name }) => {
         const { spaces, pinnedTabStatesById = {} } = await chrome.storage.local.get(['spaces', 'pinnedTabStatesById']);
         const source = spaces.find(s => s.id === sourceId);
         const created = spaces.find(s => s.name === name);
         return {
           parentId: (await chrome.bookmarks.get(bookmarkId))[0].parentId,
-          binding: pinnedTabStatesById[tabId]?.bookmarkId,
-          createdTemporary: created.temporaryTabs.includes(tabId),
-          sourceOwns: [...source.spaceBookmarks, ...source.temporaryTabs].includes(tabId),
+          bindings: tabIds.map(id => pinnedTabStatesById[id]?.bookmarkId),
+          createdPinned: tabIds.map(id => created.spaceBookmarks.includes(id)),
+          sourceOwns: tabIds.some(id => [...source.spaceBookmarks, ...source.temporaryTabs].includes(id)),
           sourceRows: document.querySelectorAll(`.space[data-space-id="${sourceId}"] .tab[data-bookmark-id="${bookmarkId}"]`).length
         };
-      }, { tabId, sourceId: source.id, bookmarkId, name: inactiveName });
+      }, { tabIds: [tabId, otherTabId], sourceId: source.id, bookmarkId, name: inactiveName });
       expect(after.parentId).toBe(folderId);
-      expect(after.binding).toBe(bookmarkId);
-      expect(after.createdTemporary).toBe(false);
+      expect(after.bindings).toEqual([bookmarkId, bookmarkId]);
+      expect(after.createdPinned).toEqual([true, true]);
       expect(after.sourceOwns).toBe(false);
       expect(after.sourceRows).toBe(0);
     }, 60000);
@@ -945,6 +963,35 @@ describe('Space Management', () => {
       await sidebarPage.waitForFunction(({ sourceId, bookmarkId }) =>
         !document.querySelector(`.space[data-space-id="${sourceId}"] .tab[data-bookmark-id="${bookmarkId}"]`),
         { polling: 100 }, { sourceId: source.id, bookmarkId });
+    }, 60000);
+
+    test('should move tabs in other windows bound to an unloaded favorite', async () => {
+      const { source, target } = await getFixtureSpaces();
+      const bookmarkId = await sidebarPage.evaluate(async ({ url, folderId }) =>
+        (await chrome.bookmarks.create({ parentId: folderId, title: 'Elsewhere favorite', url: `${url}elsewhere` })).id,
+        { url, folderId: source.bookmarkFolderId });
+      const otherTabId = await openBoundTabInOtherWindow(source, bookmarkId, 'elsewhere');
+      await sidebarPage.reload();
+      const row = `.space.active .tab.bookmark-only[data-bookmark-id="${bookmarkId}"]`;
+
+      await moveRowToSpace(row, targetName);
+      await sidebarPage.waitForFunction(async ({ tabId, targetId }) => {
+        const { spaces } = await chrome.storage.local.get('spaces');
+        return spaces.find(s => s.id === targetId).spaceBookmarks.includes(tabId);
+      }, { polling: 100 }, { tabId: otherTabId, targetId: target.id });
+
+      const after = await sidebarPage.evaluate(async ({ tabId, sourceId, bookmarkId }) => {
+        const { spaces, pinnedTabStatesById = {} } = await chrome.storage.local.get(['spaces', 'pinnedTabStatesById']);
+        const source = spaces.find(s => s.id === sourceId);
+        return {
+          parentId: (await chrome.bookmarks.get(bookmarkId))[0].parentId,
+          binding: pinnedTabStatesById[tabId]?.bookmarkId,
+          sourceOwns: [...source.spaceBookmarks, ...source.temporaryTabs].includes(tabId)
+        };
+      }, { tabId: otherTabId, sourceId: source.id, bookmarkId });
+      expect(after.parentId).toBe(target.bookmarkFolderId);
+      expect(after.binding).toBe(bookmarkId);
+      expect(after.sourceOwns).toBe(false);
     }, 60000);
   });
 });
