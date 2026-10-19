@@ -132,6 +132,7 @@ chrome.commands.onCommand.addListener(async function (command) {
 async function updateTabLastActivity(tabId) {
     if (!tabId) return;
     try {
+        // Wait for store init so this read-modify-write cannot undo the new-session reset.
         await spaceStore.run(() => {});
         const result = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
         const activityData = result[TAB_ACTIVITY_STORAGE_KEY] || {};
@@ -222,6 +223,7 @@ async function runAutoArchiveCheck() {
         }
 
         const currentSpaces = await spaceStore.dispatch({ action: 'get' });
+        // Read activity only after init, which clears previous-session records.
         const activityResult = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
         const tabActivity = activityResult[TAB_ACTIVITY_STORAGE_KEY] || {};
         const protectedIds = new Set(currentSpaces.flatMap(space => space.spaceBookmarks));
