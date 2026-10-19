@@ -240,6 +240,62 @@ describe('Space Management', () => {
         throw error;
       }
     }, 120000);
+
+    test('should confirm and report when the space bookmark folder cannot be read', async () => {
+      let folderId;
+      let originalParentId;
+      try {
+        await sidebarPage.close();
+        sidebarPage = await createSpace(browser, extensionId, 'Unreadable Space');
+
+        await sidebarPage.evaluate(() => {
+          for (const btn of document.querySelectorAll('.space-switcher button')) {
+            if (btn.textContent.trim() === 'Unreadable Space') { btn.click(); break; }
+          }
+        });
+        await delay(1000);
+
+        ({ folderId, originalParentId } = await sidebarPage.evaluate(async () => {
+          const { spaces = [] } = await chrome.storage.local.get('spaces');
+          const space = spaces.find(item => item.name === 'Unreadable Space');
+          const [folder] = await chrome.bookmarks.get(space.bookmarkFolderId);
+          await chrome.bookmarks.move(folder.id, { parentId: '1' });
+          return { folderId: folder.id, originalParentId: folder.parentId };
+        }));
+        await sidebarPage.waitForSelector('.space.active .bookmark-association-error');
+
+        await showSpaceOptionsDropdown(sidebarPage);
+
+        const dialogs = [];
+        sidebarPage.on('dialog', async dialog => {
+          dialogs.push({ type: dialog.type(), message: dialog.message() });
+          await dialog.accept();
+        });
+
+        await sidebarPage.$eval('.space.active .delete-space-btn', btn => btn.click());
+        await delay(1500);
+
+        expect(dialogs).toEqual([
+          {
+            type: 'confirm',
+            message: 'Delete "Unreadable Space"? Its bookmark folder could not be read. The bookmark folder is no longer inside the Arcify folder.',
+          },
+          { type: 'alert', message: 'The bookmark folder is no longer inside the Arcify folder.' },
+        ]);
+        const remaining = await getSidebarSpaces(sidebarPage);
+        expect(remaining.find(s => s.name === 'Unreadable Space')).toBeDefined();
+        const [folder] = await sidebarPage.evaluate(id => chrome.bookmarks.get(id), folderId);
+        expect(folder.parentId).toBe('1');
+      } catch (error) {
+        await takeScreenshotOnFailure(sidebarPage, 'delete-unreadable-space-failure');
+        throw error;
+      } finally {
+        if (folderId && originalParentId) {
+          await sidebarPage.evaluate(({ id, parentId }) => chrome.bookmarks.move(id, { parentId }),
+            { id: folderId, parentId: originalParentId }).catch(() => {});
+        }
+      }
+    }, 120000);
   });
 
   describe('Space Colors', () => {

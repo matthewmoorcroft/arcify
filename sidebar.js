@@ -971,10 +971,20 @@ function createSpaceElement(space) {
     });
 
     deleteSpaceBtn.addEventListener('click', async () => {
-        const folder = await getSpaceBookmarkFolder(space);
-        const count = folder ? countBookmarks((await chrome.bookmarks.getSubTree(folder.id))[0]) : 0;
-        if (confirm(`Delete "${space.name}"? This deletes its bookmark folder (${count} ${count === 1 ? 'bookmark' : 'bookmarks'}) and closes its tabs.`)) {
-            deleteSpace(space.id);
+        let message;
+        try {
+            const folder = await getSpaceBookmarkFolder(space);
+            const count = countBookmarks((await chrome.bookmarks.getSubTree(folder.id))[0]);
+            message = `Delete "${space.name}"? This deletes its bookmark folder (${count} ${count === 1 ? 'bookmark' : 'bookmarks'}) and closes its tabs.`;
+        } catch (error) {
+            message = `Delete "${space.name}"? Its bookmark folder could not be read. ${error.message}`;
+        }
+        if (confirm(message)) {
+            try {
+                await deleteSpace(space.id);
+            } catch (error) {
+                alert(error.message);
+            }
         }
     });
 
