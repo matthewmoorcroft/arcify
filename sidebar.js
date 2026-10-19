@@ -1433,19 +1433,32 @@ async function moveTabToPinned(space, tab) {
     await refreshActiveSpaceUI();
 }
 
-function offerFavoriteUndo(removed) {
+function offerFavoriteUndo(removed, restoreTab = null) {
     if (!removed) return;
     // A bookmark is the favorite's durable record, so give intentional removal a recovery window.
     showUndoToast('Favorite removed.', async () => {
-        await chrome.bookmarks.create(removed);
+        const bookmark = await chrome.bookmarks.create(removed);
+        if (restoreTab) await restoreTab(bookmark);
         scheduleBookmarkRefresh();
     });
+}
+
+async function restoreFavoriteTab(spaceId, tabId, index, bookmark) {
+    const space = spaces.find(s => s.id === spaceId);
+    if (!space?.temporaryTabs.includes(tabId)) return;
+    await Utils.setPinnedTabState(tabId, { pinnedUrl: bookmark.url, bookmarkId: bookmark.id });
+    space.temporaryTabs = space.temporaryTabs.filter(id => id !== tabId);
+    space.spaceBookmarks.splice(index, 0, tabId);
+    await persistSpaceTabOrder(space.id, { source: 'arcify', movedTabId: tabId });
+    await refreshActiveSpaceUI();
 }
 
 async function moveTabToTemp(space, tab, { temporaryDisplayOrder = null, inverted = false, refresh = true } = {}) {
     space = spaces.find(s => s.id === space.id);
     if (!space) return;
-    offerFavoriteUndo(await removeSpacePin(space, tab));
+    const favoriteIndex = space.spaceBookmarks.indexOf(tab.id);
+    offerFavoriteUndo(await removeSpacePin(space, tab),
+        bookmark => restoreFavoriteTab(space.id, tab.id, favoriteIndex, bookmark));
 
     // Move tab from bookmarks to temporary tabs in space data
     space.spaceBookmarks = space.spaceBookmarks.filter(id => id !== tab.id);
