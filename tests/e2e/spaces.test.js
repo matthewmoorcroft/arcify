@@ -844,13 +844,12 @@ describe('Space Management', () => {
       return fixture;
     }
 
-    test('should move an open favorite with its bookmark and keep it bound', async () => {
-      const { source, target } = await getFixtureSpaces();
+    async function pinOpenTab(source, path) {
       const tabId = await sidebarPage.evaluate(async ({ url, spaceId }) => {
-        const tab = await chrome.tabs.create({ url: `${url}open`, active: false });
+        const tab = await chrome.tabs.create({ url, active: false });
         await chrome.runtime.sendMessage({ type: 'spaceStore', action: 'assign', tabId: tab.id, spaceId });
         return tab.id;
-      }, { url, spaceId: source.id });
+      }, { url: `${url}${path}`, spaceId: source.id });
       await sidebarPage.reload();
       const row = `.space.active .tab[data-tab-id="${tabId}"]`;
       await sidebarPage.waitForSelector(row);
@@ -860,7 +859,12 @@ describe('Space Management', () => {
       });
       const pinnedRow = `.space.active [data-tab-type="pinned"] .tab[data-tab-id="${tabId}"][data-bookmark-id]`;
       await sidebarPage.waitForSelector(pinnedRow);
-      const bookmarkId = await sidebarPage.$eval(pinnedRow, el => el.dataset.bookmarkId);
+      return { tabId, pinnedRow, bookmarkId: await sidebarPage.$eval(pinnedRow, el => el.dataset.bookmarkId) };
+    }
+
+    test('should move an open favorite with its bookmark and keep it bound', async () => {
+      const { source, target } = await getFixtureSpaces();
+      const { tabId, pinnedRow, bookmarkId } = await pinOpenTab(source, 'open');
 
       await moveRowToSpace(pinnedRow, targetName);
       await sidebarPage.waitForFunction(async ({ bookmarkId, folderId }) =>
@@ -883,6 +887,47 @@ describe('Space Management', () => {
       expect(after.binding).toBe(bookmarkId);
       expect(after.sourceOwns).toBe(false);
       expect(after.sourceBookmarks).not.toContain(bookmarkId);
+      expect(after.sourceRows).toBe(0);
+    }, 60000);
+
+    test('should move an open favorite into an inactive space folder and keep it bound', async () => {
+      const inactiveName = 'Inactive Favorite Target';
+      const { source } = await getFixtureSpaces();
+      const { tabId, pinnedRow, bookmarkId } = await pinOpenTab(source, 'inactive');
+
+      // The sidebar adopts new root folders on its next refresh, so pick the folder before that runs.
+      const folderId = await sidebarPage.evaluate(async ({ name, selector }) => {
+        const root = (await chrome.bookmarks.search({ title: 'Arcify' })).find(node => !node.url);
+        const folder = await chrome.bookmarks.create({ parentId: root.id, title: name });
+        document.querySelector(selector).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+        let item;
+        while (!(item = [...document.querySelectorAll('#tab-context-menu .submenu .context-menu-item')].find(el => el.textContent === name))) {
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+        item.click();
+        return folder.id;
+      }, { name: inactiveName, selector: pinnedRow });
+      await sidebarPage.waitForFunction(async ({ tabId, name }) => {
+        const { spaces } = await chrome.storage.local.get('spaces');
+        return spaces.find(s => s.name === name)?.spaceBookmarks.includes(tabId);
+      }, { polling: 100 }, { tabId, name: inactiveName });
+
+      const after = await sidebarPage.evaluate(async ({ tabId, sourceId, bookmarkId, name }) => {
+        const { spaces, pinnedTabStatesById = {} } = await chrome.storage.local.get(['spaces', 'pinnedTabStatesById']);
+        const source = spaces.find(s => s.id === sourceId);
+        const created = spaces.find(s => s.name === name);
+        return {
+          parentId: (await chrome.bookmarks.get(bookmarkId))[0].parentId,
+          binding: pinnedTabStatesById[tabId]?.bookmarkId,
+          createdTemporary: created.temporaryTabs.includes(tabId),
+          sourceOwns: [...source.spaceBookmarks, ...source.temporaryTabs].includes(tabId),
+          sourceRows: document.querySelectorAll(`.space[data-space-id="${sourceId}"] .tab[data-bookmark-id="${bookmarkId}"]`).length
+        };
+      }, { tabId, sourceId: source.id, bookmarkId, name: inactiveName });
+      expect(after.parentId).toBe(folderId);
+      expect(after.binding).toBe(bookmarkId);
+      expect(after.createdTemporary).toBe(false);
+      expect(after.sourceOwns).toBe(false);
       expect(after.sourceRows).toBe(0);
     }, 60000);
 

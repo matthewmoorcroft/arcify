@@ -1343,9 +1343,19 @@ async function createSpaceFromInactive(spaceName, tabToMove) {
             return;
         }
 
+        const oldSpace = spaces.find(s =>
+            s.temporaryTabs.includes(tabToMove.id) || s.spaceBookmarks.includes(tabToMove.id)
+        );
+        const isPinned = !!oldSpace?.spaceBookmarks.includes(tabToMove.id);
+        if (isPinned) {
+            const binding = await Utils.getPinnedTabState(tabToMove.id);
+            const bookmark = await getSpaceBookmarkById(oldSpace, binding?.bookmarkId);
+            if (!bookmark) throw new Error('The favorite binding is no longer valid for this space.');
+            await chrome.bookmarks.move(bookmark.id, { parentId: spaceFolder.id });
+        }
+
         const spaceColor = await Utils.getSpaceColor(spaceName);
 
-        const spaceBookmarks = [];
         const registryEntry = await LocalStorage.getOrCreateSpaceRegistryEntry(spaceFolder.id, {
             name: spaceName,
             color: spaceColor,
@@ -1358,15 +1368,12 @@ async function createSpaceFromInactive(spaceName, tabToMove) {
             uuid: registryEntry?.spaceUuid ?? Utils.generateUUID(),
             name: spaceName,
             color: spaceColor,
-            spaceBookmarks: spaceBookmarks,
-            temporaryTabs: [tabToMove.id],
+            spaceBookmarks: isPinned ? [tabToMove.id] : [],
+            temporaryTabs: isPinned ? [] : [tabToMove.id],
             lastTab: tabToMove.id,
         };
 
         // Remove the moved tab from its old space
-        const oldSpace = spaces.find(s =>
-            s.temporaryTabs.includes(tabToMove.id) || s.spaceBookmarks.includes(tabToMove.id)
-        );
         if (oldSpace) {
             oldSpace.temporaryTabs = oldSpace.temporaryTabs.filter(id => id !== tabToMove.id);
             oldSpace.spaceBookmarks = oldSpace.spaceBookmarks.filter(id => id !== tabToMove.id);
