@@ -196,9 +196,6 @@ async function runAutoArchiveCheck() {
     const now = Date.now();
 
     try {
-        const activityResult = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
-        const tabActivity = activityResult[TAB_ACTIVITY_STORAGE_KEY] || {};
-
         // --- Build the protected favorite set from the durable Arcify bookmark tree ---
         // NOTE: space.spaceBookmarks holds ephemeral tab-IDs (not URLs), so the old
         // check here was always empty and never protected favorites from archiving.
@@ -224,6 +221,8 @@ async function runAutoArchiveCheck() {
         }
 
         const currentSpaces = await spaceStore.dispatch({ action: 'get' });
+        const activityResult = await chrome.storage.local.get(TAB_ACTIVITY_STORAGE_KEY);
+        const tabActivity = activityResult[TAB_ACTIVITY_STORAGE_KEY] || {};
         const protectedIds = new Set(currentSpaces.flatMap(space => space.spaceBookmarks));
         const bindings = await Utils.getPinnedTabStates();
 
