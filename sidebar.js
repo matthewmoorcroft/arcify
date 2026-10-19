@@ -2462,11 +2462,12 @@ async function renderSpaceTabs(space, pinnedContainer, tempContainer) {
     }
 
     const tempFragment = document.createDocumentFragment();
-    let tabsToLoad = [...new Set([
-        ...space.temporaryTabs,
-        ...space.spaceBookmarks.filter(id => !representedPinnedTabIds.has(id))
-    ])];
-    if (invertTabOrder) tabsToLoad.reverse();
+    const unrepresentedBookmarkIds = space.spaceBookmarks.filter(id => !representedPinnedTabIds.has(id));
+    const fallbackFavoriteIds = treeAvailable ? [] : unrepresentedBookmarkIds;
+    const temporaryTabIds = [...new Set([...space.temporaryTabs, ...unrepresentedBookmarkIds])]
+        .filter(id => !fallbackFavoriteIds.includes(id));
+    if (invertTabOrder) temporaryTabIds.reverse();
+    const tabsToLoad = [...new Set([...fallbackFavoriteIds, ...temporaryTabIds])];
     for (const tabId of tabsToLoad) {
         const tab = tabs.find(t => t.id === tabId);
         if (!tab || representedPinnedTabIds.has(tabId)) continue;
@@ -3539,7 +3540,7 @@ async function moveTabToSpace(tabId, spaceId, pinned = false, openerTabId = null
 
                         // Filter to only include tabs in the temporary container (including the new one)
                         const tabsInContainer = ownedTabs.filter(t => {
-                            return container.querySelector(`[data-tab-id="${t.id}"]`);
+                            return container.querySelector(`[data-tab-id="${t.id}"]:not(.favorite-fallback)`);
                         });
 
                         // Apply invert order if enabled
