@@ -3019,7 +3019,8 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
             setActiveSpace,
             allBookmarkSpaceFolders,
             createSpaceFromInactive,
-            replaceBookmarkUrlWithCurrentUrl
+            replaceBookmarkUrlWithCurrentUrl,
+            moveFavoriteToSpace
         );
     });
 
@@ -3579,6 +3580,26 @@ async function moveTabToSpace(tabId, spaceId, pinned = false, openerTabId = null
         // Always release the processing lock, even on the early `space not found`
         // return or any throw above — otherwise future moves for this tab are ignored.
         processingTabMoves.delete(tabId);
+    }
+}
+
+// The bookmark is the durable favorite, so move it before reassigning any live tab that uses it.
+async function moveFavoriteToSpace(tab, tabElement, spaceId) {
+    const target = spaces.find(s => s.id === spaceId);
+    const source = tab.id
+        ? ownerOf(spaces, tab.id)
+        : spaces.find(s => s.id === tabElement.closest('.space')?.dataset.spaceId);
+    if (!target || !source || source.id === target.id) return;
+    const binding = tab.id ? await Utils.getPinnedTabState(tab.id) : null;
+    const bookmark = await getSpaceBookmarkById(source, tabElement.dataset.bookmarkId || binding?.bookmarkId);
+    if (!bookmark) throw new Error('The favorite binding is no longer valid for this space.');
+    const targetFolder = await getSpaceBookmarkFolder(target);
+    await chrome.bookmarks.move(bookmark.id, { parentId: targetFolder.id });
+    if (tab.id) {
+        await moveTabToSpace(tab.id, target.id, true);
+    } else {
+        disposeEditorsInElement(tabElement);
+        tabElement.remove();
     }
 }
 

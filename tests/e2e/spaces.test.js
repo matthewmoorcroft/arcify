@@ -8,6 +8,7 @@ import {
   getSidebarSpaces,
   createSpace,
 } from './helpers/extension-helper.js';
+import { createServer } from 'node:http';
 import {
   delay,
   takeScreenshotOnFailure,
@@ -795,5 +796,110 @@ describe('Space Management', () => {
         throw error;
       }
     }, 120000);
+  });
+  describe('Move Favorite to Space', () => {
+    let server;
+    let url;
+    const targetName = 'Favorite Target';
+
+    beforeAll(async () => {
+      server = createServer((req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<title>Move fixture</title>'); });
+      await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+      url = `http://127.0.0.1:${server.address().port}/`;
+      const page = await createSpace(browser, extensionId, targetName);
+      await page.close();
+    });
+
+    afterAll(async () => {
+      if (!server) return;
+      const closed = new Promise(resolve => server.close(resolve));
+      server.closeAllConnections();
+      await closed;
+    });
+
+    async function moveRowToSpace(selector, spaceName) {
+      await sidebarPage.waitForSelector(selector);
+      await sidebarPage.$eval(selector, el => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+      await sidebarPage.waitForSelector('#tab-context-menu');
+      await sidebarPage.evaluate(name => {
+        const item = [...document.querySelectorAll('#tab-context-menu .submenu .context-menu-item')]
+          .find(el => el.textContent === name);
+        if (!item) throw new Error(`Move to Space target missing: ${name}`);
+        item.click();
+      }, spaceName);
+    }
+
+    // Activates another space as the source so the target is offered in the submenu.
+    async function getFixtureSpaces() {
+      const fixture = await sidebarPage.evaluate(async name => {
+        const { spaces } = await chrome.storage.local.get('spaces');
+        const source = spaces.find(s => s.name !== name);
+        const { id: windowId } = await chrome.windows.getCurrent();
+        await chrome.runtime.sendMessage({ type: 'spaceStore', action: 'activate', windowId, spaceId: source.id });
+        await chrome.storage.session.set({ activeSpaces: { [windowId]: source.id } });
+        return { source, target: spaces.find(s => s.name === name) };
+      }, targetName);
+      await sidebarPage.reload();
+      await sidebarPage.waitForSelector(`.space.active[data-space-id="${fixture.source.id}"]`);
+      return fixture;
+    }
+
+    test('should move an open favorite with its bookmark and keep it bound', async () => {
+      const { source, target } = await getFixtureSpaces();
+      const tabId = await sidebarPage.evaluate(async ({ url, spaceId }) => {
+        const tab = await chrome.tabs.create({ url: `${url}open`, active: false });
+        await chrome.runtime.sendMessage({ type: 'spaceStore', action: 'assign', tabId: tab.id, spaceId });
+        return tab.id;
+      }, { url, spaceId: source.id });
+      await sidebarPage.reload();
+      const row = `.space.active .tab[data-tab-id="${tabId}"]`;
+      await sidebarPage.waitForSelector(row);
+      await sidebarPage.$eval(row, el => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
+      await sidebarPage.evaluate(() => {
+        [...document.querySelectorAll('.context-menu-item')].find(el => el.textContent === 'Pin Tab').click();
+      });
+      const pinnedRow = `.space.active [data-tab-type="pinned"] .tab[data-tab-id="${tabId}"][data-bookmark-id]`;
+      await sidebarPage.waitForSelector(pinnedRow);
+      const bookmarkId = await sidebarPage.$eval(pinnedRow, el => el.dataset.bookmarkId);
+
+      await moveRowToSpace(pinnedRow, targetName);
+      await sidebarPage.waitForFunction(async ({ bookmarkId, folderId }) =>
+        (await chrome.bookmarks.get(bookmarkId))[0].parentId === folderId, { polling: 100 }, { bookmarkId, folderId: target.bookmarkFolderId });
+      await sidebarPage.waitForFunction(async ({ tabId, name }) => {
+        const { spaces } = await chrome.storage.local.get('spaces');
+        return spaces.find(s => s.name === name).spaceBookmarks.includes(tabId);
+      }, { polling: 100 }, { tabId, name: targetName });
+
+      const after = await sidebarPage.evaluate(async ({ tabId, sourceId, bookmarkId }) => {
+        const { spaces, pinnedTabStatesById = {} } = await chrome.storage.local.get(['spaces', 'pinnedTabStatesById']);
+        const source = spaces.find(s => s.id === sourceId);
+        return {
+          binding: pinnedTabStatesById[tabId]?.bookmarkId,
+          sourceOwns: [...source.spaceBookmarks, ...source.temporaryTabs].includes(tabId),
+          sourceBookmarks: (await chrome.bookmarks.getChildren(source.bookmarkFolderId)).map(node => node.id),
+          sourceRows: document.querySelectorAll(`.space[data-space-id="${sourceId}"] .tab[data-bookmark-id="${bookmarkId}"]`).length
+        };
+      }, { tabId, sourceId: source.id, bookmarkId });
+      expect(after.binding).toBe(bookmarkId);
+      expect(after.sourceOwns).toBe(false);
+      expect(after.sourceBookmarks).not.toContain(bookmarkId);
+      expect(after.sourceRows).toBe(0);
+    }, 60000);
+
+    test('should move an unloaded favorite bookmark to another space', async () => {
+      const { source, target } = await getFixtureSpaces();
+      const bookmarkId = await sidebarPage.evaluate(async ({ url, folderId }) =>
+        (await chrome.bookmarks.create({ parentId: folderId, title: 'Unloaded favorite', url: `${url}unloaded` })).id,
+        { url, folderId: source.bookmarkFolderId });
+      await sidebarPage.reload();
+      const row = `.space.active .tab.bookmark-only[data-bookmark-id="${bookmarkId}"]`;
+
+      await moveRowToSpace(row, targetName);
+      await sidebarPage.waitForFunction(async ({ bookmarkId, folderId }) =>
+        (await chrome.bookmarks.get(bookmarkId))[0].parentId === folderId, { polling: 100 }, { bookmarkId, folderId: target.bookmarkFolderId });
+      await sidebarPage.waitForFunction(({ sourceId, bookmarkId }) =>
+        !document.querySelector(`.space[data-space-id="${sourceId}"] .tab[data-bookmark-id="${bookmarkId}"]`),
+        { polling: 100 }, { sourceId: source.id, bookmarkId });
+    }, 60000);
   });
 });
