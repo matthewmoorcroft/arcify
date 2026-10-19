@@ -15,7 +15,6 @@ registerTourMessages();
 
 import { SpaceStore, ownerOf } from './space-store.js';
 import { isProtectedFavorite } from './favorite-safety.js';
-import { shouldArchive } from './archive-policy.js';
 import { registerBookmarkListeners } from './bookmark-events.js';
 import { enqueueBookmarkOperation } from './bookmark-writer.js';
 
@@ -254,7 +253,7 @@ async function runAutoArchiveCheck() {
                 continue;
             }
 
-            if (shouldArchive(lastActivity, now, idleThresholdMillis)) {
+            if (now - lastActivity > idleThresholdMillis) {
                 // Check if tab still exists before archiving
                 try {
                     await chrome.tabs.get(tab.id); // Throws error if tab closed

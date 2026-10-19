@@ -2,21 +2,12 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { shouldArchive } from '../../archive-policy.js';
 import { SpaceStore, ownerOf } from '../../space-store.js';
 import { isProtectedFavorite } from '../../favorite-safety.js';
 import { Utils } from '../../utils.js';
 import { Logger } from '../../logger.js';
 
 const threshold = 360 * 60 * 1000;
-const now = Date.UTC(2026, 0, 1);
-
-test('a recently active tab is kept', () => {
-    assert.equal(shouldArchive(now - 1000, now, threshold), false);
-});
-test('a tab idle past the threshold is archived', () => {
-    assert.equal(shouldArchive(now - threshold - 1, now, threshold), true);
-});
 
 const source = readFileSync(new URL('../../background.js', import.meta.url), 'utf8')
     .replace(/^import .*;\s*$/gm, '');
@@ -52,7 +43,7 @@ function startBackground() {
         chrome, console, setTimeout, clearTimeout,
         registerTourMessages() {}, registerBookmarkListeners() {},
         enqueueBookmarkOperation: async () => ({}), copyCurrentTabUrlWithFallback: async () => {},
-        SpaceStore, ownerOf, isProtectedFavorite, shouldArchive, Utils, Logger
+        SpaceStore, ownerOf, isProtectedFavorite, Utils, Logger
     });
     return () => Promise.all(chrome.alarms.onAlarm.listeners.map(fn => fn({ name: 'autoArchiveTabsAlarm' })));
 }
