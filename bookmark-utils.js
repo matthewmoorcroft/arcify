@@ -159,7 +159,7 @@ export const BookmarkUtils = {
         });
 
         // If bookmark has a custom name, set tab name override
-        if (bookmarkData.title && newTab.title !== bookmarkData.title) {
+        if (bookmarkData.title && (adoptedTab || newTab.title !== bookmarkData.title)) {
             await Utils.setTabNameOverride(newTab.id, adoptedTab?.url || bookmarkData.url, bookmarkData.title);
         }
 
@@ -230,8 +230,8 @@ export const BookmarkUtils = {
 
     /**
      * Find an open tab an explicit favorite click may adopt instead of opening a duplicate.
-     * Only unbound tabs whose URL key matches qualify; callers pass tabs already
-     * limited to the target window and space.
+     * Only unbound tabs whose URL key matches qualify, preferring an exact URL;
+     * callers pass tabs already limited to the target window and space.
      * @param {Array} tabs - Candidate Chrome tabs in the target window and space
      * @param {Object} bindings - pinnedTabStatesById map
      * @param {string} bookmarkUrl - The favorite's URL
@@ -240,7 +240,8 @@ export const BookmarkUtils = {
      */
     findAdoptableTab(tabs, bindings, bookmarkUrl, getUrlKey) {
         const targetKey = getUrlKey(bookmarkUrl);
-        return tabs.find(t => t.url && !bindings[t.id]?.bookmarkId && getUrlKey(t.url) === targetKey) || null;
+        const matches = tabs.filter(t => t.url && !bindings[t.id]?.bookmarkId && getUrlKey(t.url) === targetKey);
+        return matches.find(t => t.url === bookmarkUrl) || matches[0] || null;
     },
 
     /**

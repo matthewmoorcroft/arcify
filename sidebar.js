@@ -2882,7 +2882,7 @@ async function createTabElement(tab, isPinned = false, isBookmarkOnly = false) {
 
                     // Check if tab is in archive and restore it
                     const archivedTabs = await Utils.getArchivedTabs();
-                    const archivedTab = !isPinned && !adoptTab && archivedTabs.find(t => t.url === tabUrl);
+                    const archivedTab = !isPinned && archivedTabs.find(t => t.url === tabUrl);
 
                     let targetSpaceId = activeSpaceId;
                     let bookmarkTitle = tab.title || tabElement.querySelector('.tab-title-display')?.textContent || 'Bookmark';
