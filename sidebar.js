@@ -1016,6 +1016,21 @@ function createSpaceElement(space) {
     }
 }
 
+async function moveSpaceFolderBefore(space, nextSpace) {
+    try {
+        const arcifyFolder = await LocalStorage.getOrCreateArcifyFolder();
+        const children = await chrome.bookmarks.getChildren(arcifyFolder.id);
+        const currentIndex = children.findIndex(node => node.id === space.bookmarkFolderId);
+        const nextIndex = children.findIndex(node => node.id === nextSpace?.bookmarkFolderId);
+        // Removing a folder shifts later siblings left, so a forward move must target one index earlier.
+        const movingForward = currentIndex < nextIndex;
+        const index = nextIndex < 0 ? children.length - 1 : nextIndex - Number(movingForward);
+        await chrome.bookmarks.move(space.bookmarkFolderId, { parentId: arcifyFolder.id, index });
+    } catch (error) {
+        Logger.warn('Could not reorder space folder:', error);
+    }
+}
+
 async function updateSpaceSwitcher() {
     Logger.log('Updating space switcher...');
     spaceSwitcher.innerHTML = '';
@@ -1129,6 +1144,9 @@ async function updateSpaceSwitcher() {
             Logger.log("set", newIndex);
 
             spaces.splice(newIndex, 0, draggedSpace);
+
+            // Move the space folder too: discovery orders spaces by their folders under Arcify.
+            await moveSpaceFolderBefore(draggedSpace, spaces[newIndex + 1]);
 
             // Save and re-render
             saveSpaces();

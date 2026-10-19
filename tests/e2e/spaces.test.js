@@ -733,6 +733,77 @@ describe('Space Management', () => {
     });
   });
 
+  describe('Space Order', () => {
+    const chipOrder = page => page.$$eval('.space-switcher button', els => els.map(el => el.textContent.trim()));
+    const folderOrder = page => page.evaluate(async () => {
+      const [root] = (await chrome.bookmarks.search({ title: 'Arcify' })).filter(node => !node.url);
+      return (await chrome.bookmarks.getChildren(root.id)).filter(node => !node.url).map(node => node.title);
+    });
+
+    test('should keep space chips and Arcify bookmark folders in the same order', async () => {
+      try {
+        for (const name of ['Order A', 'Order B']) {
+          await sidebarPage.close();
+          sidebarPage = await createSpace(browser, extensionId, name);
+        }
+        expect(await chipOrder(sidebarPage)).toEqual(await folderOrder(sidebarPage));
+
+        logTestStep('Dragging the last chip to the front...');
+        const dragged = (await chipOrder(sidebarPage)).at(-1);
+        await sidebarPage.evaluate(name => {
+          const buttons = [...document.querySelectorAll('.space-switcher button')];
+          const source = buttons.find(el => el.textContent.trim() === name);
+          const target = buttons[0];
+          source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }));
+          target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: target.getBoundingClientRect().left + 1 }));
+        }, dragged);
+        await sidebarPage.waitForFunction(async name => {
+          const [root] = (await chrome.bookmarks.search({ title: 'Arcify' })).filter(node => !node.url);
+          return (await chrome.bookmarks.getChildren(root.id)).filter(node => !node.url)[0]?.title === name;
+        }, { polling: 100, timeout: 5000 }, dragged);
+        expect((await chipOrder(sidebarPage))[0]).toBe(dragged);
+        expect(await chipOrder(sidebarPage)).toEqual(await folderOrder(sidebarPage));
+        logTestStep('✓ Chip drag reordered the bookmark folders');
+
+        logTestStep('Dragging the first chip forward...');
+        await sidebarPage.evaluate(() => {
+          const buttons = [...document.querySelectorAll('.space-switcher button')];
+          const source = buttons[0];
+          const target = buttons[1];
+          source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }));
+          target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: target.getBoundingClientRect().right - 1 }));
+        });
+        await sidebarPage.waitForFunction(async () => {
+          const chips = [...document.querySelectorAll('.space-switcher button')].map(node => node.textContent.trim());
+          const [root] = (await chrome.bookmarks.search({ title: 'Arcify' })).filter(node => !node.url);
+          const folders = (await chrome.bookmarks.getChildren(root.id)).filter(node => !node.url).map(node => node.title);
+          return JSON.stringify(chips) === JSON.stringify(folders);
+        }, { polling: 100, timeout: 5000 });
+        expect(await chipOrder(sidebarPage)).toEqual(await folderOrder(sidebarPage));
+        logTestStep('✓ Forward chip drag kept bookmark folder order aligned');
+
+        logTestStep('Moving the last folder to the top in bookmarks...');
+        const moved = await sidebarPage.evaluate(async () => {
+          const [root] = (await chrome.bookmarks.search({ title: 'Arcify' })).filter(node => !node.url);
+          const folder = (await chrome.bookmarks.getChildren(root.id)).filter(node => !node.url).at(-1);
+          await chrome.bookmarks.move(folder.id, { parentId: root.id, index: 0 });
+          return folder.title;
+        });
+        await sidebarPage.waitForFunction(name => document.querySelector('.space-switcher button')?.textContent.trim() === name,
+          { polling: 100, timeout: 5000 }, moved);
+        expect(await chipOrder(sidebarPage)).toEqual(await folderOrder(sidebarPage));
+
+        await sidebarPage.close();
+        sidebarPage = await openSidebar(browser, extensionId);
+        expect(await chipOrder(sidebarPage)).toEqual(await folderOrder(sidebarPage));
+        logTestStep('✓ Bookmark folder move reordered the chips');
+      } catch (error) {
+        await takeScreenshotOnFailure(sidebarPage, 'space-order-failure');
+        throw error;
+      }
+    }, 120000);
+  });
+
   describe('Space Persistence', () => {
     test('should persist spaces after closing and reopening sidebar', async () => {
       try {
