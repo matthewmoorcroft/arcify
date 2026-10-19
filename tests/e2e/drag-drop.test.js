@@ -1213,6 +1213,22 @@ describe('Drag and Drop', () => {
       }, { folderId, targetSelector });
     }
 
+    // Pinned tab order in the saved space model, limited to the given tabs.
+    async function savedPinnedOrder(tabIds) {
+      return sidebarPage.evaluate(async tabIds => {
+        const { spaces = [] } = await chrome.storage.local.get('spaces');
+        return spaces[0].spaceBookmarks.filter(id => tabIds.includes(id));
+      }, tabIds);
+    }
+
+    async function waitForSavedPinnedOrder(expected) {
+      await sidebarPage.waitForFunction(async expected => {
+        const { spaces = [] } = await chrome.storage.local.get('spaces');
+        return JSON.stringify(spaces[0].spaceBookmarks.filter(id => expected.includes(id))) === JSON.stringify(expected);
+      }, { polling: 100, timeout: 5000 }, expected).catch(() => {});
+      expect(await savedPinnedOrder(expected)).toEqual(expected);
+    }
+
     async function bookmarkPosition(id) {
       return sidebarPage.evaluate(async id => {
         const [node] = await chrome.bookmarks.get(id);
@@ -1227,12 +1243,27 @@ describe('Drag and Drop', () => {
           const parentId = spaces[0].bookmarkFolderId;
           const make = async title => (await chrome.bookmarks.create({ parentId, title })).id;
           const { invertTabOrder = true } = await chrome.storage.sync.get({ invertTabOrder: true });
-          return { parentId, inverted: invertTabOrder, a: await make('Drag A'), b: await make('Drag B'), c: await make('Drag C') };
+          const a = await make('Drag A'), b = await make('Drag B');
+          // Pin an open tab between B and C, and one inside C, so moving C changes the saved pinned order.
+          const pinIn = async (folderId, url) => {
+            const bookmark = await chrome.bookmarks.create({ parentId: folderId, title: url, url });
+            const tab = await chrome.tabs.create({ url, active: false });
+            await chrome.runtime.sendMessage({ type: 'spaceStore', action: 'assign', spaceId: spaces[0].id, tabId: tab.id, pinned: true });
+            const { pinnedTabStatesById = {} } = await chrome.storage.local.get('pinnedTabStatesById');
+            pinnedTabStatesById[tab.id] = { pinnedUrl: url, bookmarkId: bookmark.id };
+            await chrome.storage.local.set({ pinnedTabStatesById });
+            return tab.id;
+          };
+          const tabX = await pinIn(parentId, 'https://www.example.com/?drag-x');
+          const c = await make('Drag C');
+          const tabC = await pinIn(c, 'https://www.example.com/?drag-c');
+          return { parentId, inverted: invertTabOrder, a, b, c, tabX, tabC };
         });
         const folder = id => `.space.active .folder[data-bookmark-id="${id}"]`;
         await sidebarPage.reload({ waitUntil: 'domcontentloaded' });
         await sidebarPage.waitForSelector(folder(ids.c));
         expect(await sidebarPage.$eval(`${folder(ids.c)} > .folder-header`, el => el.draggable)).toBe(true);
+        await waitForSavedPinnedOrder([ids.tabX, ids.tabC]);
 
         logTestStep('Dragging folder C above sibling A...');
         const before = await bookmarkPosition(ids.a);
@@ -1247,6 +1278,7 @@ describe('Drag and Drop', () => {
         // Display order is the reverse of bookmark order when tab order is inverted.
         expect(reorderedC.index).toBe(ids.inverted ? reorderedA.index + 1 : reorderedA.index - 1);
         expect(reorderedA.index).toBe(ids.inverted ? before.index : before.index + 1);
+        await waitForSavedPinnedOrder([ids.tabC, ids.tabX]);
 
         await sidebarPage.reload({ waitUntil: 'domcontentloaded' });
         await sidebarPage.waitForSelector(folder(ids.c));
@@ -1259,6 +1291,7 @@ describe('Drag and Drop', () => {
           { polling: 100, timeout: 5000 }, ids);
         expect(await bookmarkPosition(ids.c)).toEqual({ parentId: ids.b, index: 0 });
         await sidebarPage.waitForSelector(`${folder(ids.b)} > .folder-content > .folder[data-bookmark-id="${ids.c}"]`);
+        await waitForSavedPinnedOrder([ids.tabC, ids.tabX]);
 
         logTestStep('Rejecting a drop of folder B into its own child C...');
         await dragFolder(ids.b, `${folder(ids.c)} > .folder-content`);

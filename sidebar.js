@@ -1956,8 +1956,8 @@ async function persistSpaceTabOrder(spaceId) {
  * Called after an Arcify drag+drop to update the space model (spaceBookmarks/temporaryTabs)
  * from the DOM and persist the extension order.
  */
-async function handleArcifyOrderChangeAfterDropByTabId(tabId, container) {
-    if (!tabId || !container) return;
+async function handleArcifyOrderChangeAfterDrop(container) {
+    if (!container) return;
     const spaceElement = container.closest('.space');
     if (!spaceElement) return;
     const spaceId = spaceElement.dataset.spaceId;
@@ -1981,7 +1981,7 @@ async function handleArcifyOrderChangeAfterDropByTabId(tabId, container) {
         return;
     }
 
-    await persistSpaceTabOrder(spaceId, { source: 'arcify', movedTabId: tabId });
+    await persistSpaceTabOrder(spaceId);
 }
 
 async function setupDragAndDrop(pinnedContainer, tempContainer) {
@@ -2084,6 +2084,7 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
                     projectedTabAnchors.get(sourceContent).delete(anchorKey);
                 }
                 const droppedTabId = draggingElement.dataset.tabId ? parseInt(draggingElement.dataset.tabId) : null;
+                const droppedFolder = draggingElement.classList.contains('folder');
                 if (targetFolderElement) openFolder(targetFolderElement);
 
                 const targetContainer = targetFolder || container;
@@ -2139,8 +2140,8 @@ async function setupDragAndDrop(pinnedContainer, tempContainer) {
 
                 // Update the model from the DOM (Arcify is source of truth here), then reconcile Chrome.
                 // This is intentionally done after bookmark operations so section membership is correct.
-                if (droppedTabId && !operationResult?.orderHandled) {
-                    await handleArcifyOrderChangeAfterDropByTabId(droppedTabId, container);
+                if (droppedFolder || (droppedTabId && !operationResult?.orderHandled)) {
+                    await handleArcifyOrderChangeAfterDrop(container);
                 }
                 if (operationResult?.orderHandled) await refreshActiveSpaceUI({ force: true });
                 } catch (error) {
