@@ -3616,6 +3616,8 @@ function setupFolderContextMenu(folderElement, space, item = null) {
         }
 
         const parentId = String(folderElement.parentElement.closest('.folder')?.dataset.bookmarkId || spaceFolder.id);
+        // Chrome reads a same-parent move index before removing the node, so moving to
+        // index + 1 is a no-op; swap by moving the later sibling to the earlier index.
         const findSwap = (siblings, offset) => {
             const folderIndex = siblings.findIndex(sibling => String(sibling.id) === String(folderId));
             const neighborIndex = folderIndex + offset;
