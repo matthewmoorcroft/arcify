@@ -260,3 +260,5 @@ coverage lives in `tests/e2e/independent-spaces.test.js` alongside the space, ta
 bookmark, and drag-and-drop suites.
 
 With **Sync spaces to Chrome tab groups** off, right-click a top-level folder and choose **New Folder** to create a child folder. Spaces support two folder levels (parent → child). Turning sync on disables new nested-folder creation and preserves existing folders.
+
+Drag a folder by its header to reorder it among its siblings, move it to the space's top level, or drop it into an open folder's content to nest it. A folder cannot be dropped into itself or its own subfolders. Nesting by drag follows the same rules as **New Folder**: sync must be off, and the result must stay within two folder levels. Reordering within the folder's current parent works in either sync mode.
