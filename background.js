@@ -15,6 +15,7 @@ registerTourMessages();
 
 import { SpaceStore, ownerOf } from './space-store.js';
 import { isProtectedFavorite } from './favorite-safety.js';
+import { shouldArchive } from './archive-policy.js';
 import { registerBookmarkListeners } from './bookmark-events.js';
 import { enqueueBookmarkOperation } from './bookmark-writer.js';
 
@@ -247,9 +248,14 @@ async function runAutoArchiveCheck() {
 
             const lastActivity = tabActivity[tab.id];
 
-            // If we have no record, or it's older than the threshold, mark for archiving
-            // We assume tabs without a record haven't been active since tracking started or last check
-            if (!lastActivity || (now - lastActivity > idleThresholdMillis)) {
+            // Start tracking tabs with no record (opened in the background, or restored with a
+            // new id after restart) instead of treating them as idle.
+            if (!lastActivity) {
+                await updateTabLastActivity(tab.id);
+                continue;
+            }
+
+            if (shouldArchive(lastActivity, now, idleThresholdMillis)) {
                 // Check if tab still exists before archiving
                 try {
                     await chrome.tabs.get(tab.id); // Throws error if tab closed
