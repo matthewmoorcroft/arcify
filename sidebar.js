@@ -601,7 +601,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // --- Space Switching with Trackpad Swipe ---
+    // --- Space Switching with Trackpad Swipe and Mouse Side Buttons ---
     let isSwiping = false;
     let swipeTimeout = null;
     const swipeThreshold = 25; // Min horizontal movement to trigger a swipe
