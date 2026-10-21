@@ -638,7 +638,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             isSwiping = true;
             event.preventDefault(); // Stop browser from navigating back/forward
 
-            // deltaX > 0 means swiping right (finger moves right, content moves left) -> previous space
+            // deltaX < 0 -> previous space, deltaX > 0 -> next space
             await switchSpaceBy(event.deltaX < 0 ? -1 : 1);
 
             // Cooldown to prevent re-triggering during the same gesture
